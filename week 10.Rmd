@@ -1,0 +1,101 @@
+---
+title: "Week 10"
+Author: "MD Asadul Islam"
+output: html_document
+date: "2024-11-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## My Dataset - Sentiment Analysis of US Financial News Headlines Data
+
+For this assignment I am going to perform a sentiment analysis on US Financial News Headlines data obtained from kaggle. The link to the dataset is https://www.kaggle.com/notlucasp/financial-news-headlines.
+
+The datasets consist of 3 sets scraped from CNBC, the Guardian, and Reuters news official websites, the headlines in these datasets reflects the overview of the U.S. economy and stock market every day for the years 2017 to 2020.
+
+Data obtained from CNBC contains the headlines, last updated date, and the preview text of articles from the end of December 2017 to July 19th, 2020.
+
+Data obtained from the Guardian Business contains the headlines and last updated date of articles from the end of December 2017 to July 19th, 2020 since the Guardian Business does not offer preview text.
+
+Data obtained from Reuters contains the headlines, last updated date, and the preview text of articles from the end of March 2018 to July 19th, 2020.
+
+```{r load libraries}
+library(tidyverse)
+library(tidytext)
+library(textdata)   
+library(ggplot2)
+```
+Using the loughran lexicon, I performed the sentiment analysis and took the peak at the sentiments from the loughran lexicon. 
+
+
+```{r loughran code}
+loughran_sentiments <- get_sentiments("loughran")
+loughran_sentiments 
+
+cnbc_headlines <- read_csv('cnbc_headlines.csv')
+head(cnbc_headlines, 10)
+
+#clean the cnbc headlines data
+cnbc_headlines_clean <- cnbc_headlines[rowSums(is.na(cnbc_headlines)) != ncol(cnbc_headlines), ]
+head(cnbc_headlines_clean)
+
+```
+
+### Sentiment Analysis with Inner Join
+
+First, I need to take the text of the headlines and convert the text to the tidy format using unnest_tokens(). I also set up a column to keep track of which headline each word comes from. I add a new columns to the dataframe containing the Headline Date and Month (YYY-MM). Then I convert headlines to tidytext format. Then I find a sentiment score for each word using the “loughran” lexicon and inner_join().Next, I count up how many positive and negative words there are in each headline.I then use spread() so that I can have negative and positive sentiment in separate columns, and lastly calculate a net sentiment (positive - negative).
+
+
+
+```{r code for sentiment analysis}
+cnbc_headlines_clean <- cnbc_headlines_clean %>%
+  rowwise() %>%
+  mutate(Headline_Date = as.Date(sub(".*, ","",Time), format = "%d %B %Y"),
+         Headline_YYYYMM = format( as.Date(sub(".*, ","",Time), format = "%d %B %Y"), "%Y-%m")
+         )
+
+tidy_cnbc_headlines <- cnbc_headlines_clean %>%
+  select(Headline_YYYYMM, Headline_Date, Headlines) %>%
+  mutate(linenumber = row_number()) %>%
+  unnest_tokens(output = word, input = Headlines, token = "words", format = "text", to_lower = TRUE)
+
+cnbc_sentiment <- tidy_cnbc_headlines %>%
+  inner_join(loughran_sentiments) %>%
+  count(Headline_YYYYMM, Headline_Date, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+ggplot(cnbc_sentiment, aes(Headline_YYYYMM, sentiment)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip()
+
+```
+
+### Most Common Negative and Positive Words
+One advantage of having the data frame with both sentiment and word is that one can analyze word counts that contribute to each sentiment. By implementing count() here with arguments of both word and sentiment, we find out how much each word contributed to each sentiment. This can be shown visually, and one can pipe straight into ggplot2, if one likes, because of the way one is consistently using tools built for handling tidy data frames. 
+
+```{r code for most common words}
+loughran_word_counts <- tidy_cnbc_headlines %>%
+  inner_join(get_sentiments("loughran")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+loughran_word_counts
+
+
+loughran_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment",
+       x = NULL) +
+  coord_flip()
+
+```
+
+
